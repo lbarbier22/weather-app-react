@@ -7,10 +7,6 @@
 
 import type { ImageSourcePropType } from "react-native";
 
-/* ------------------------------------------------------------------ */
-/*  Icônes                                                             */
-/* ------------------------------------------------------------------ */
-
 const ICON_SUN = require("../assets/meteo/sun.png");
 const ICON_CLOUDS = require("../assets/meteo/clouds.png");
 const ICON_RAIN = require("../assets/meteo/rain.png");
@@ -35,10 +31,6 @@ export function iconFromWeatherCode(code: number | undefined): ImageSourcePropTy
   return ICON_SUN;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Labels                                                             */
-/* ------------------------------------------------------------------ */
-
 /**
  * Renvoie un libellé en français pour un code météo WMO.
  */
@@ -58,10 +50,6 @@ export function weatherLabelFromCode(code: number | undefined): string {
   return "Conditions variables";
 }
 
-/* ------------------------------------------------------------------ */
-/*  Formatage                                                          */
-/* ------------------------------------------------------------------ */
-
 /** Arrondit une température et renvoie "--" si la valeur est absente. */
 export function roundTemp(v: number | undefined): string {
   if (typeof v !== "number" || Number.isNaN(v)) return "--";
@@ -70,7 +58,7 @@ export function roundTemp(v: number | undefined): string {
 
 /** Formate une date ISO (YYYY-MM-DD) en DD/MM. */
 export function formatDateFR(iso: string): string {
-  const [, m, d] = iso.split("-");
+  const [y, m, d] = iso.split("-");
   if (!m || !d) return iso;
   return `${d}/${m}`;
 }

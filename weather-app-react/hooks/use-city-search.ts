@@ -1,11 +1,3 @@
-/**
- * Hook de recherche de villes via l'API de géocodage Open-Meteo.
- *
- * Gère l'état de la requête (chargement, erreur, résultats),
- * annule automatiquement les requêtes précédentes grâce à un AbortController,
- * et retente une fois en cas d'erreur 504.
- */
-
 import { useRef, useState } from "react";
 import type { City, CitiesResponse } from "@/types/weather";
 

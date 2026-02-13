@@ -1,11 +1,3 @@
-/**
- * Hook de gestion des villes favorites.
- *
- * Persiste la liste dans AsyncStorage sous la clé `@favorites:cities`.
- * Expose des méthodes pour charger, ajouter, supprimer et vérifier
- * si une ville est en favori.
- */
-
 import { useState, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { FavoriteCity } from "@/types/weather";

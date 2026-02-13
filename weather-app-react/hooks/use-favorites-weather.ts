@@ -1,11 +1,3 @@
-/**
- * Hook qui charge la météo actuelle de chaque ville favorite.
- *
- * Lance toutes les requêtes en parallèle via `Promise.allSettled`
- * et expose un dictionnaire `weatherByCity` indexé par l'id de la ville.
- * Les résultats sont mis à jour à chaque changement de la liste de favoris.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FavoriteCity } from "@/types/weather";
 import { fetchCurrentWeather, type CurrentWeather } from "@/services/weather-api";

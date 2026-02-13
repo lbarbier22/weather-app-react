@@ -25,6 +25,7 @@ export type FavoriteCity = {
   id: number;
   name: string;
   admin1?: string;
+  country?: string;
   latitude: number;
   longitude: number;
 };
@@ -48,6 +49,7 @@ export type CityParams = {
   id?: string;
   name?: string;
   admin1?: string;
+  country?: string;
   lat?: string;
   lon?: string;
 };

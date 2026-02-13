@@ -1,12 +1,3 @@
-/**
- * Dropdown de résultats de recherche de villes.
- *
- * Composant partagé entre les écrans Home et Weather pour garantir
- * un affichage et un format identiques partout.
- * Se positionne juste en dessous de la barre de recherche parente
- * grâce à `onLayout` mesuré sur le conteneur.
- */
-
 import {
   Pressable,
   ScrollView,

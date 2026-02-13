@@ -1,225 +1,347 @@
-import {Search, Star} from 'lucide-react-native';
-import {Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from "react-native";
-import {useEffect, useState} from "react";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { Star } from "lucide-react-native";
 
-type City = {
-    id: number;
-    name: string;
-    latitude: number;
-    longitude: number;
-    country: string;
-    admin1: string;
-};
+import { useFavorites } from "@/hooks/use-favorites";
+import { fetchForecast } from "@/services/weather-api";
+import { SearchBar } from "@/components/search-bar";
+import type { CityParams, City, FavoriteCity, ForecastResponse } from "@/types/weather";
+import {
+  formatDateFR,
+  iconFromWeatherCode,
+  roundTemp,
+  weatherLabelFromCode,
+} from "@/utils/weather";
 
-type CitiesResponse = {
-    results?: City[];
-};
+export default function WeatherScreen() {
+  const router = useRouter();
+  const { id, name, admin1, country, lat, lon } =
+    useLocalSearchParams<CityParams>();
 
-export default function HomeScreen() {
-    const router = useRouter();
+  /* ── Coordonnées parsées ── */
+  const latitude = useMemo(() => {
+    const n = Number(lat);
+    return Number.isFinite(n) ? n : null;
+  }, [lat]);
 
-    const [cities, setCities] = useState<City[]>([]);
-    const [query, setQuery] = useState("");
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [showResults, setShowResults] = useState(false);
-    const [selectedCity, setSelectedCity] = useState<City | null>(null);
-    const [searchBarY, setSearchBarY] = useState(0);
-    const [searchBarH, setSearchBarH] = useState(0);
+  const longitude = useMemo(() => {
+    const n = Number(lon);
+    return Number.isFinite(n) ? n : null;
+  }, [lon]);
 
-    const getCities = async (name: string, openDropdown = true) => {
-        const url =
-            "https://geocoding-api.open-meteo.com/v1/search?name=" +
-            encodeURIComponent(name) +
-            "&count=8&language=fr&format=json";
+  /* ── État local ── */
+  const [forecast, setForecast] = useState<ForecastResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
-        setLoading(true);
-        if (openDropdown) setShowResults(true);
-        setError(null);
+  /* ── Hooks partagés ── */
+  const { loadFavorites, toggleFavorite, isFavorite } = useFavorites();
 
-        try {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const cityId = id ? Number(id) : null;
 
-            const json = (await response.json()) as CitiesResponse;
-            setCities(json.results ?? []);
-        } catch (e: any) {
-            console.error(e);
-            setCities([]);
-            setShowResults(false);
-            setError(e?.message ?? "Erreur inconnue");
-        } finally {
-            setLoading(false);
-        }
+  /* ── Chargement des prévisions via le service centralisé ── */
+  useEffect(() => {
+    if (latitude == null || longitude == null) {
+      setError("Latitude/longitude manquantes");
+      return;
+    }
+
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+
+    fetchForecast(latitude, longitude, controller.signal)
+      .then(setForecast)
+      .catch((e: any) => {
+        if (e?.name === "AbortError") return;
+        console.error(e);
+        setForecast(null);
+        setError(e?.message ?? "Erreur inconnue");
+      })
+      .finally(() => setLoading(false));
+
+    return () => controller.abort();
+  }, [latitude, longitude]);
+
+  // Charge les favoris pour afficher l'état de l'étoile
+  useEffect(() => {
+    loadFavorites();
+  }, [id, loadFavorites]);
+
+  /* ── Données dérivées ── */
+  const currentTemp = forecast?.current?.temperature_2m;
+  const currentCode = forecast?.current?.weather_code;
+  const titleCity = name ? String(name) : "Ville";
+  const mainIcon = iconFromWeatherCode(currentCode);
+  const mainLabel = weatherLabelFromCode(currentCode);
+
+  /** Sous-titre : région + pays. */
+  const subtitle = [admin1, country].filter(Boolean).join(", ");
+
+  /** Tableau des jours de prévision. */
+  const days = useMemo(() => {
+    const d = forecast?.daily;
+    const times = d?.time ?? [];
+    const codes = d?.weather_code ?? [];
+    const tmax = d?.temperature_2m_max ?? [];
+    const tmin = d?.temperature_2m_min ?? [];
+
+    return times.map((t, idx) => ({
+      date: t,
+      code: codes[idx],
+      tmax: tmax[idx],
+      tmin: tmin[idx],
+    }));
+  }, [forecast?.daily]);
+
+  /** Bascule le favori pour la ville affichée. */
+  const handleToggleFavorite = async () => {
+    if (cityId == null || latitude == null || longitude == null) return;
+
+    const city: FavoriteCity = {
+      id: cityId,
+      name: String(name ?? "Ville"),
+      admin1: admin1 ? String(admin1) : undefined,
+      country: country ? String(country) : undefined,
+      latitude,
+      longitude,
     };
 
-    useEffect(() => {
-        getCities("Abidjan", false);
-    }, []);
+    await toggleFavorite(city);
+  };
 
-    useEffect(() => {
-        if (cities.length > 0 && !selectedCity) {
-            setSelectedCity(cities[0]);
-        }
-    }, [cities]);
+  /** Navigue vers une nouvelle ville depuis la dropdown. */
+  const handleSelectCity = (c: City) => {
+    setQuery(c.name);
+    // Replace pour éviter d'empiler les écrans Weather
+    router.replace({
+      pathname: "/Weather",
+      params: {
+        id: String(c.id),
+        name: c.name,
+        admin1: c.admin1,
+        country: c.country,
+        lat: String(c.latitude),
+        lon: String(c.longitude),
+      },
+    });
+  };
 
-    return (
-      <View style={{flex: 1, flexDirection: "column", padding: 16, position: "relative"}}>
-          {showResults && (
-              <Pressable
-                  style={[StyleSheet.absoluteFill, {zIndex: 40}]}
-                  onPress={() => setShowResults(false)}
-              />
-          )}
-          <Text style={{
-              flexDirection: "row",
-              alignSelf: "center",
-              fontSize: 48,
-              fontWeight: "700",
-              color: "white"
-          }}>Météo</Text>
-          <View
-              onLayout={(e) => {
-                  setSearchBarY(e.nativeEvent.layout.y);
-                  setSearchBarH(e.nativeEvent.layout.height);
-              }}
-              style={{
-                  borderWidth: 1,
-                  borderColor: "white",
-                  marginTop: 12,
-                  borderRadius: 8,
-                  padding: 12,
-                  justifyContent: "space-between",
-                  flexDirection: "row",
-                  zIndex: 60,
-              }}
+  return (
+    <View style={styles.screen}>
+      {/* ── En-tête ── */}
+      <View style={styles.header}>
+        {/* Ligne 1 : nom de la ville + étoile favori */}
+        <View style={styles.cityRow}>
+          <View style={styles.cityBlock}>
+            <Text style={styles.cityText} numberOfLines={1}>
+              {titleCity}
+            </Text>
+            {!!subtitle && (
+              <Text style={styles.citySub} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            )}
+          </View>
+
+          <Pressable
+            hitSlop={10}
+            onPress={handleToggleFavorite}
+            style={styles.favoriteBtn}
           >
-              <TextInput
-                  style={{width: "80%", color: "white"}}
-                  value={query}
-                  onChangeText={(text) => {
-                      setQuery(text);
-                      setShowResults(false);
-                  }}
-                  placeholder="Rechercher une ville"
-                  placeholderTextColor="#cbd5e1"
-                  autoCorrect={false}
-                  autoCapitalize="none"
-              />
-              <Pressable
-                  onPress={() => {
-                      const trimmed = query.trim();
-                      if (trimmed.length === 0) return;
-                      getCities(trimmed, true);
-                  }}
-                  hitSlop={10}
-              >
-                  <Search color={"white"} />
-              </Pressable>
-          </View>
-          {showResults && cities.length > 0 && (
-              <View
-                  style={{
-                      position: "absolute",
-                      top: searchBarY + searchBarH + 8,
-                      left: 0,
-                      right: 0,
-                      backgroundColor: "#0f1a33",
-                      borderWidth: 1,
-                      borderColor: "#2b3e6a",
-                      borderRadius: 8,
-                      zIndex: 70,
-                      overflow: "hidden",
-                      maxHeight: 320,
-                  }}
-              >
-                  <ScrollView keyboardShouldPersistTaps="handled">
-                      {cities.map((c) => (
-                          <Pressable
-                              key={c.id}
-                              onPress={() => {
-                                  setSelectedCity(c);
-                                  setShowResults(false);
+            <Star
+              color="#f8f000"
+              size={22}
+              fill={
+                cityId != null && isFavorite(cityId) ? "#f8f000" : "transparent"
+              }
+            />
+          </Pressable>
+        </View>
 
-                                  router.push({
-                                      pathname: "/weather",
-                                      params: {
-                                          id: String(c.id),
-                                          name: c.name,
-                                          admin1: c.admin1,
-                                          lat: String(c.latitude),
-                                          lon: String(c.longitude),
-                                      },
-                                  });
-                              }}
-                              style={{
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 12,
-                                  borderBottomWidth: 1,
-                                  borderBottomColor: "#24345d",
-                              }}
-                          >
-                              <Text style={{color: "white", fontSize: 16, fontWeight: "700"}}>
-                                  {c.name} — {c.admin1}
-                              </Text>
-                              <Text style={{color: "#cbd5e1"}}>
-                                  {c.latitude}, {c.longitude}
-                              </Text>
-                          </Pressable>
-                      ))}
-                  </ScrollView>
-              </View>
-          )}
-          <View>
-              <Text style={{
-                  color: "white"
-              }}>{loading
-                  ? "Chargement..."
-                  : error
-                      ? `Erreur: ${error}`
-                      : selectedCity
-                          ? `${selectedCity.name} — ${selectedCity.admin1} (${selectedCity.latitude}/${selectedCity.longitude})`
-                          : "Aucune ville sélectionnée"}</Text>
-          </View>
-          <View style={{marginTop: 12, flexDirection: "row", alignItems: "center", gap: 4}}>
-              <Star color={'#f8f000'} fill={'#f8f000'}/>
-              <Text style={{color: "white", fontSize: 28}}>Favoris</Text>
-          </View>
-          <View style={{flexWrap: "wrap", flexDirection: "row", marginTop: 12, gap: 10}}>
-              <View style={{
-                  width: "98%",
-                  padding: 15,
-                  height: 100,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  backgroundColor: "#1b2c52",
-                  borderRadius: 8
-              }}>
-                  <Image source={require("./../../assets/meteo/snow.png")}
-                         style={{width: 50, height: 50, marginRight: 12}} resizeMode="contain"/>
-                  <View style={{flex: 1, justifyContent: "center"}}>
-                      <Text style={{color: "white", fontSize: 20}}>-18°C</Text>
-                      <Text style={{color: "white", fontSize: 24, fontWeight: "700"}}>Montréal</Text>
-                  </View>
-              </View>
-              <View style={{
-                  width: "98%",
-                  padding: 15,
-                  height: 100,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  backgroundColor: "#1b2c52",
-                  borderRadius: 8
-              }}>
-                  <Image source={require("./../../assets/meteo/sun.png")}
-                         style={{width: 50, height: 50, marginRight: 12}} resizeMode="contain"/>
-                  <View style={{flex: 1, justifyContent: "center"}}>
-                      <Text style={{color: "white", fontSize: 20}}>22°C</Text>
-                      <Text style={{color: "white", fontSize: 24, fontWeight: "700"}}>Abidjan</Text>
-                  </View>
-              </View>
-          </View>
+        {/* Ligne 2 : barre de recherche partagée (pleine largeur) */}
+        <SearchBar
+          query={query}
+          onChangeQuery={setQuery}
+          onSelectCity={handleSelectCity}
+        />
       </View>
-    );
+
+      {/* ── Météo actuelle ── */}
+      <View style={styles.centerCard}>
+        <Image source={mainIcon} style={styles.mainIcon} resizeMode="contain" />
+        <Text style={styles.tempText}>
+          {loading ? "--" : `${roundTemp(currentTemp)}°C`}
+        </Text>
+        <Text style={styles.conditionText}>
+          {error ? `Erreur: ${error}` : loading ? "Chargement…" : mainLabel}
+        </Text>
+      </View>
+
+      {/* ── Prévisions ── */}
+      <View style={styles.tableCard}>
+        <View style={styles.tableHeader}>
+          <Text style={[styles.tableHeaderText, styles.colDate]}>Date</Text>
+          <Text style={[styles.tableHeaderText, styles.colTemp]}>Temp.</Text>
+          <Text style={[styles.tableHeaderText, styles.colIcon]}>Météo</Text>
+        </View>
+
+        <ScrollView
+          style={styles.tableScroll}
+          contentContainerStyle={styles.tableScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {days.map((d) => (
+            <View key={d.date} style={styles.row}>
+              <Text style={[styles.rowText, styles.colDate]}>
+                {formatDateFR(d.date)}
+              </Text>
+              <Text style={[styles.rowText, styles.colTemp]}>
+                {`${roundTemp(d.tmax)}° / ${roundTemp(d.tmin)}°`}
+              </Text>
+              <View style={[styles.colIcon, styles.iconCell]}>
+                <Image
+                  source={iconFromWeatherCode(d.code)}
+                  style={styles.rowIcon}
+                  resizeMode="contain"
+                />
+              </View>
+            </View>
+          ))}
+
+          {!loading && !error && days.length === 0 && (
+            <Text style={styles.emptyText}>Aucune prévision disponible</Text>
+          )}
+        </ScrollView>
+      </View>
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    backgroundColor: "#1aa7ff",
+  },
+
+  /* ── En-tête ── */
+  header: {
+    marginTop: 14,
+    gap: 12,
+  },
+  cityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  cityBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  cityText: {
+    color: "white",
+    fontSize: 36,
+    fontWeight: "400",
+    letterSpacing: 0.2,
+  },
+  citySub: {
+    color: "rgba(255,255,255,0.80)",
+    fontSize: 15,
+    marginTop: 2,
+  },
+  favoriteBtn: {
+    padding: 4,
+  },
+
+  /* ── Météo actuelle ── */
+  centerCard: {
+    marginTop: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mainIcon: {
+    width: 56,
+    height: 56,
+    marginBottom: 6,
+    opacity: 0.95,
+  },
+  tempText: {
+    color: "white",
+    fontSize: 72,
+    fontWeight: "200",
+    lineHeight: 80,
+  },
+  conditionText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 20,
+    marginTop: 2,
+  },
+
+  /* ── Tableau de prévisions ── */
+  tableCard: {
+    marginTop: 20,
+    flex: 1,
+  },
+  tableHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 6,
+    marginBottom: 8,
+  },
+  tableHeaderText: {
+    color: "rgba(255,255,255,0.90)",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  tableScroll: {
+    flex: 1,
+    minHeight: 1,
+  },
+  tableScrollContent: {
+    paddingHorizontal: 6,
+    paddingBottom: 20,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 7,
+  },
+  rowText: {
+    color: "white",
+    fontSize: 22,
+    fontWeight: "300",
+  },
+  colDate: {
+    width: 70,
+  },
+  colTemp: {
+    flex: 1,
+    textAlign: "center",
+  },
+  colIcon: {
+    width: 60,
+    alignItems: "flex-end",
+  },
+  iconCell: {
+    justifyContent: "center",
+  },
+  rowIcon: {
+    width: 32,
+    height: 32,
+  },
+  emptyText: {
+    color: "rgba(255,255,255,0.9)",
+    marginTop: 10,
+  },
+});
